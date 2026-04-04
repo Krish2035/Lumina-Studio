@@ -7,10 +7,11 @@ import { getInterpolatedValue } from '../../utils/interpolate';
 
 /**
  * Handles external 3D assets (GLB/GLTF).
- * Clones the scene to prevent shared state between multiple instances of the same model.
+ * Clones the scene to prevent shared state between multiple instances.
  */
 const InjectedModel = ({ url }: { url: string }) => {
-  const { scene } = useGLTF(url);
+  // Cast to 'any' to bypass the "Property scene does not exist" error during build
+  const { scene } = useGLTF(url) as any;
   const clonedScene = useMemo(() => scene.clone(), [scene]);
   return <primitive object={clonedScene} />;
 };
@@ -27,31 +28,37 @@ export const AnimatedMesh = ({ shape, isSelected, onSelect }: any) => {
 
   const [hovered, setHovered] = useState(false);
 
-  // 1. Calculate the animated properties from the Timeline using Interpolation
+  // 1. Calculate animated properties
   const animatedState = useMemo(() => {
     const keyframes = project.keyframes[shape.id] || [];
     return getInterpolatedValue(currentTime, keyframes, shape);
   }, [currentTime, project.keyframes, shape]);
 
   // 2. PHYSICS SETUP
-  // Position and Rotation are derived from the animated state unless physics is active
-  const physicsArgs = {
-    mass: shape.isPhysicsEnabled ? 1 : 0,
-    position: [animatedState.x || 0, animatedState.y || 0, animatedState.z || 0] as [number, number, number],
-    rotation: [
-      THREE.MathUtils.degToRad(animatedState.rotationX || 0),
-      THREE.MathUtils.degToRad(animatedState.rotationY || 0),
-      THREE.MathUtils.degToRad(animatedState.rotationZ || 0)
-    ] as [number, number, number],
-    args: shape.type === 'box' ? [1, 1, 1] : [1],
-  };
+  // Position and Rotation logic
+  const position = [animatedState.x || 0, animatedState.y || 0, animatedState.z || 0] as [number, number, number];
+  const rotation = [
+    THREE.MathUtils.degToRad(animatedState.rotationX || 0),
+    THREE.MathUtils.degToRad(animatedState.rotationY || 0),
+    THREE.MathUtils.degToRad(animatedState.rotationZ || 0)
+  ] as [number, number, number];
 
+  // We split the hooks and use 'any' to satisfy the strict Cannon.js Tuple requirements
   const [physicsRef, api] = shape.type === 'sphere' 
-    ? useSphere(() => physicsArgs) 
-    : useBox(() => physicsArgs);
+    ? useSphere(() => ({
+        mass: shape.isPhysicsEnabled ? 1 : 0,
+        position,
+        rotation,
+        args: [1] as [number], // Explicitly typed for Sphere
+      })) 
+    : useBox(() => ({
+        mass: shape.isPhysicsEnabled ? 1 : 0,
+        position,
+        rotation,
+        args: [1, 1, 1] as [number, number, number], // Explicitly typed for Box
+      }));
 
   // 3. TELEPORTATION & SYNC LOGIC
-  // When physics is OFF, we manually "teleport" the physics body to follow the timeline
   useEffect(() => {
     if (!shape.isPhysicsEnabled) {
       api.position.set(animatedState.x || 0, animatedState.y || 0, animatedState.z || 0);
@@ -65,8 +72,7 @@ export const AnimatedMesh = ({ shape, isSelected, onSelect }: any) => {
     }
   }, [animatedState, shape.isPhysicsEnabled, api]);
 
-  // 4. INTERACTION & TRIGGER ENGINE
-  // Executes "No-Code" logic defined in the Sidebar
+  // 4. INTERACTION ENGINE
   const handleInteraction = (eventType: 'onClick' | 'onHover') => {
     if (!shape.triggers) return;
 
@@ -85,20 +91,16 @@ export const AnimatedMesh = ({ shape, isSelected, onSelect }: any) => {
           case 'changeColor':
             updateShape(shape.id, { fill: trigger.value });
             break;
-          default:
-            break;
         }
       }
     });
   };
 
-  // UX: Visual feedback by changing cursor on hover
   useEffect(() => {
     document.body.style.cursor = hovered ? 'pointer' : 'auto';
     return () => { document.body.style.cursor = 'auto'; };
   }, [hovered]);
 
-  // Material Polish based on Performance Mode
   const materialProps = {
     color: animatedState.fill || "#3b82f6",
     emissive: animatedState.fill || "#3b82f6",
@@ -112,8 +114,8 @@ export const AnimatedMesh = ({ shape, isSelected, onSelect }: any) => {
   return (
     <group 
       ref={physicsRef as any} 
-      onClick={(e) => { 
-        e.stopPropagation(); // Prevent "clicking through" multiple 3D objects
+      onClick={(e: any) => { 
+        e.stopPropagation(); 
         onSelect(); 
         handleInteraction('onClick');
       }}
@@ -138,7 +140,6 @@ export const AnimatedMesh = ({ shape, isSelected, onSelect }: any) => {
         )}
       </Suspense>
 
-      {/* Selection Wireframe Highlight */}
       {isSelected && (
         <mesh scale={[1.1, 1.1, 1.1]}>
           {shape.type === 'box' ? <boxGeometry /> : <sphereGeometry args={[1, 16, 16]} />}
