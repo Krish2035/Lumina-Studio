@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useCanvasStore, type EffectType } from './store/useCanvasStore';
-import { EffectManager } from './components/canvas/EffectManager';
 import { Scene3D } from './components/canvas/Scene3D';
 import { Editor } from './components/canvas/Editor';
 import { Sidebar } from './components/ui/Sidebar'; 
 import { Timeline } from './components/ui/Timeline';
 import { StudioControls } from './components/ui/StudioControls';
 import { NodeEditor } from './components/ui/NodeEditor';
+import { EffectManager } from './components/canvas/EffectManager';
 import { Canvas } from '@react-three/fiber';
-import { ChevronLeft, Maximize, Loader2, MousePointer2, Zap } from 'lucide-react';
+import { ChevronLeft, Loader2, Zap, Menu, X } from 'lucide-react';
 
 /**
- * Optimized Preview with Intersection Observer.
- * Prevents WebGL context overload by only rendering visible previews.
+ * Preview helper for the selection screen grid.
+ * Optimized with IntersectionObserver to save GPU memory.
  */
 const EffectPreview = ({ type }: { type: EffectType }) => {
   const [isVisible, setIsVisible] = useState(false);
@@ -23,7 +23,6 @@ const EffectPreview = ({ type }: { type: EffectType }) => {
       ([entry]) => setIsVisible(entry.isIntersecting),
       { threshold: 0.1 }
     );
-
     if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
@@ -31,12 +30,9 @@ const EffectPreview = ({ type }: { type: EffectType }) => {
   return (
     <div ref={containerRef} className="absolute inset-0 z-0 opacity-40 group-hover:opacity-100 transition-opacity duration-700">
       {isVisible ? (
-        <Canvas 
-          camera={{ position: [0, 0, 15], fov: 50 }}
-          gl={{ antialias: false, powerPreference: "high-performance" }}
-        >
+        <Canvas camera={{ position: [0, 0, 15], fov: 50 }} gl={{ antialias: false }}>
           <ambientLight intensity={0.5} />
-          <pointLight position={[10, 10, 10]} />
+          {/* Lite version of the effect for grid previews */}
           <EffectManager forceEffect={type} isLite={true} />
         </Canvas>
       ) : (
@@ -51,98 +47,60 @@ const EffectPreview = ({ type }: { type: EffectType }) => {
 function App() {
   const { 
     isEditorOpen, 
-    isNodeEditorOpen,
+    isNodeEditorOpen, 
     currentEffect, 
     openEditor, 
     closeEditor, 
     setMousePos 
   } = useCanvasStore();
+  
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  /**
-   * GLOBAL MOUSE TRACKER: Standardized coordinates for Three.js
-   */
+  // Global mouse tracking for interactive effects
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       const x = (e.clientX / window.innerWidth) * 2 - 1;
       const y = -(e.clientY / window.innerHeight) * 2 + 1;
       setMousePos(x, y);
     };
-
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [setMousePos]);
 
   const effects: { id: EffectType; label: string }[] = [
-    { id: 'swirl', label: 'Swirl' }, { id: 'net', label: 'Net' },
-    { id: 'birds', label: 'Birds' }, { id: 'snow', label: 'Snowfall' },
-    { id: 'waves', label: 'Waves' }, { id: 'cells', label: 'Cells' },
-    { id: 'blob', label: 'Blob' }, { id: 'metaballs', label: 'Metaballs' },
-    { id: 'ink', label: 'Fluid Ink' }, { id: 'globe', label: 'Globe' },
-    { id: 'dna', label: 'DNA Helix' }, { id: 'grid', label: 'Retro Grid' },
-    { id: 'bg-grid', label: 'Infinite Grid' }, { id: 'voronoi', label: 'Voronoi' },
-    { id: 'fractal', label: 'Fractal' }, { id: 'physics', label: 'Floating' },
-    { id: 'clouds', label: 'Clouds' }, { id: 'fog', label: 'Fog' },
-    { id: 'warp', label: 'Star Warp' }, { id: 'aurora', label: 'Aurora' },
-    { id: 'bokeh', label: 'Bokeh' },
+    { id: 'swirl', label: 'Swirl' }, { id: 'net', label: 'Net' }, { id: 'birds', label: 'Birds' }, 
+    { id: 'snow', label: 'Snowfall' }, { id: 'waves', label: 'Waves' }, { id: 'cells', label: 'Cells' },
+    { id: 'blob', label: 'Blob' }, { id: 'metaballs', label: 'Metaballs' }, { id: 'ink', label: 'Fluid Ink' }, 
+    { id: 'globe', label: 'Globe' }, { id: 'dna', label: 'DNA Helix' }, { id: 'grid', label: 'Retro Grid' },
+    { id: 'voronoi', label: 'Voronoi' }, { id: 'physics', label: 'Floating' }, { id: 'clouds', label: 'Clouds' }, 
+    { id: 'warp', label: 'Star Warp' }, { id: 'bokeh', label: 'Bokeh' },
   ];
 
-  const handleFullScreen = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation(); 
-    const element = document.getElementById(`container-${id}`);
-    if (element?.requestFullscreen) element.requestFullscreen();
-  };
-
-  /**
-   * LANDING PAGE VIEW
-   */
+  // 1. SELECTION SCREEN (GRID VIEW)
   if (!isEditorOpen) {
     return (
-      <main className="min-h-screen bg-[#050505] text-white p-12 overflow-y-auto selection:bg-blue-500/30">
-        <header className="mb-16">
-          <h1 className="text-7xl font-black italic uppercase tracking-tighter leading-none mb-4">
+      <main className="min-h-screen bg-[#050505] text-white p-6 md:p-12 overflow-y-auto">
+        <header className="mb-10 md:mb-16">
+          <h1 className="text-4xl md:text-7xl font-black italic uppercase tracking-tighter mb-4">
             Lumina <span className="text-blue-500">Studio</span>
           </h1>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <p className="text-white/30 font-medium max-w-xl">
-              Procedural Animation Engine • Build v0.4.0 <br/>
-              Engineered for high-performance creative coding.
-            </p>
-            <div className="px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full w-fit">
-              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest animate-pulse">System Online</span>
-            </div>
-          </div>
+          <p className="text-white/30 font-medium max-w-xl text-sm md:text-base">
+            Procedural Animation Engine • Build v0.4.0
+          </p>
         </header>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           {effects.map((eff) => (
-            <div 
-              key={eff.id} 
-              id={`container-${eff.id}`} 
-              className="group relative aspect-[4/3] rounded-3xl border border-white/5 bg-[#0c0c0c] overflow-hidden hover:border-blue-500/50 transition-all duration-500"
-            >
-              <button 
-                onClick={(e) => handleFullScreen(e, eff.id)}
-                className="absolute top-4 right-4 z-30 p-2 bg-black/50 backdrop-blur-md rounded-xl border border-white/10 opacity-0 group-hover:opacity-100 hover:bg-blue-600 transition-all"
-              >
-                <Maximize size={16} />
-              </button>
-
+            <div key={eff.id} className="group relative aspect-video rounded-2xl border border-white/5 bg-[#0c0c0c] overflow-hidden">
               <EffectPreview type={eff.id} />
-              
-              <div className="absolute inset-x-0 bottom-0 p-6 z-20 bg-gradient-to-t from-black via-black/40 to-transparent flex flex-col gap-3">
-                <h3 className="text-[10px] font-bold tracking-[0.3em] uppercase text-white/40 group-hover:text-blue-400 transition-colors">
-                  {eff.label}
-                </h3>
-                
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openEditor(eff.id);
-                  }}
-                  className="w-full py-3 bg-white/5 hover:bg-blue-600 backdrop-blur-md border border-white/10 rounded-2xl flex items-center justify-center gap-2 transition-all opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0"
+              <div className="absolute inset-x-0 bottom-0 p-4 z-20 bg-gradient-to-t from-black flex flex-col gap-3">
+                <h3 className="text-[10px] font-bold uppercase text-white/40">{eff.label}</h3>
+                <button 
+                  onClick={() => openEditor(eff.id)} 
+                  className="w-full py-3 bg-white/5 md:hover:bg-blue-600 backdrop-blur-md border border-white/10 rounded-xl flex items-center justify-center gap-2 transition-all"
                 >
                   <Zap size={14} fill="currentColor" />
-                  <span className="text-[10px] font-bold tracking-widest uppercase">Open Studio</span>
+                  <span className="text-[10px] font-bold uppercase">Open Studio</span>
                 </button>
               </div>
             </div>
@@ -152,76 +110,65 @@ function App() {
     );
   }
 
-  /**
-   * STUDIO INTERFACE (ACTIVE SESSION)
-   */
+  // 2. STUDIO VIEW (EDITOR)
   return (
-    <div className="h-screen w-full flex flex-col bg-[#050505] text-white overflow-hidden relative selection:bg-blue-500/30">
-      
-      {/* 1. STUDIO HEADER */}
-      <header className="h-14 border-b border-white/5 flex items-center justify-between px-6 bg-[#050505] z-[70]">
-        <div className="flex items-center gap-4">
-          <button onClick={closeEditor} className="p-2 hover:bg-white/5 rounded-full flex items-center gap-2 group transition-colors">
-            <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-            <span className="text-xs font-bold uppercase tracking-widest hidden sm:block">Exit Studio</span>
+    <div className="h-screen w-full flex flex-col bg-black text-white overflow-hidden relative">
+      {/* HEADER SECTION */}
+      <header className="h-14 border-b border-white/5 flex items-center justify-between px-4 shrink-0 bg-[#050505] z-50">
+        <div className="flex items-center gap-2">
+          <button onClick={closeEditor} className="p-2 hover:bg-white/5 rounded-full pointer-events-auto">
+            <ChevronLeft size={20} />
           </button>
-          <div className="h-4 w-[1px] bg-white/10 mx-2" />
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-medium text-white/20 uppercase tracking-widest">Project:</span>
-            <span className="text-xs font-bold text-blue-500 uppercase tracking-widest truncate max-w-[150px]">{currentEffect}</span>
+          <div className="flex flex-col">
+            <span className="text-[8px] text-white/20 uppercase tracking-widest">Project:</span>
+            <span className="text-xs font-bold text-blue-500 uppercase truncate max-w-[80px] md:max-w-none">
+              {currentEffect}
+            </span>
           </div>
         </div>
         
-        {/* Context-aware Controls (Top Right) */}
-        <StudioControls />
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <div className="hidden md:block"><StudioControls /></div>
+          <button 
+            className="md:hidden p-2 bg-white/5 rounded-lg" 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          >
+            {isMobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+        </div>
       </header>
 
-      {/* 2. PRODUCTION WORKSPACE */}
-      <main className="flex-1 flex relative overflow-hidden">
-        {/* Dynamic Sidebar: Slides away when Node Editor is open for maximum canvas space */}
-        <aside className={`transition-all duration-700 ease-in-out bg-[#080808] border-r border-white/5 z-50 ${isNodeEditorOpen ? '-translate-x-full w-0 opacity-0' : 'translate-x-0 w-auto opacity-100'}`}>
-           <Sidebar />
+      {/* VIEWPORT SECTION */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* SIDEBAR OVERLAY: Uses backdrop-blur to show animation underneath */}
+        <aside className={`
+          fixed md:relative inset-y-0 left-0 z-40 w-72 bg-[#080808]/90 backdrop-blur-xl border-r border-white/5 transform transition-transform duration-300
+          ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${isNodeEditorOpen ? 'md:hidden' : 'md:block'}
+        `}>
+          <Sidebar />
         </aside>
 
-        <div className="flex-1 relative bg-black overflow-hidden">
-          {/* LAYER 0: The 3D Engine */}
-          <Scene3D />
-
-          {/* LAYER 1: Interactive Overlays */}
-          {/* Note: pointer-events-none allows mouse interaction to reach Scene3D, 
-              but children like NodeEditor can re-enable it for their own UI */}
-          <div className="absolute inset-0 z-20 pointer-events-none">
-            <div className="w-full h-full pointer-events-auto">
-              {isNodeEditorOpen ? (
-                <NodeEditor /> 
-              ) : (
-                <Editor /> /* Includes Konva layer and Studio Sliders */
-              )}
-            </div>
+        {/* MAIN CANVAS AREA */}
+        <main className="flex-1 relative bg-black overflow-hidden h-full">
+          {/* Layer 0: The 3D Scene (Background) 
+              The 'key' ensures Three.js reloads the WebGL context when switching effects */}
+          <div className="absolute inset-0 z-0">
+            <Scene3D key={currentEffect} />
           </div>
           
-          {/* LAYER 2: HUD (Heads-Up Display) */}
-          <div className="absolute bottom-6 left-6 z-30 pointer-events-none">
-            <div className="flex flex-col gap-2">
-               <div className="flex items-center gap-2 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-lg border border-white/10 shadow-2xl">
-                 <MousePointer2 size={12} className="text-blue-500" />
-                 <span className="text-[9px] font-mono text-white/60 uppercase tracking-widest">
-                   Engine Tracking: Active
-                 </span>
-               </div>
-               <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 backdrop-blur-md rounded-md border border-blue-500/20 w-fit">
-                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                 <span className="text-[8px] font-black text-blue-400 uppercase tracking-tighter">
-                   {isNodeEditorOpen ? "Pro Mode • Logic Engine" : "Studio Mode • Canvas"}
-                 </span>
-               </div>
+          {/* Layer 1: Interactive UI Overlay
+              pointer-events-none allows clicks to pass through to Layer 0 (the Canvas) */}
+          <div className="absolute inset-0 z-10 pointer-events-none">
+            <div className="w-full h-full pointer-events-auto overflow-hidden">
+              {isNodeEditorOpen ? <NodeEditor /> : <Editor />}
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
 
-      {/* 3. STUDIO TIMELINE (Bottom Layer) */}
-      <footer className="h-48 border-t border-white/5 bg-[#0a0a0a] z-[60] relative">
+      {/* FOOTER SECTION */}
+      <footer className="h-28 md:h-36 border-t border-white/5 bg-[#0a0a0a] shrink-0 z-50">
         <Timeline />
       </footer>
     </div>

@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo } from 'react';
+import React, { Suspense, useMemo, useState, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, ContactShadows, Environment } from '@react-three/drei';
 import { Physics } from '@react-three/cannon';
@@ -6,22 +6,22 @@ import { useCanvasStore } from '../../store/useCanvasStore';
 import { EffectManager } from './EffectManager';
 import { AnimatedMesh } from './AnimatedMesh';
 import { PresetManager } from './PresetManager';
-import { MouseField } from '../effects/MouseField'; // The new interactive trail
+import { MouseField } from '../effects/MouseField';
 
 /**
- * Invisible plane to capture mouse movement globally for shaders.
- * We normalize coordinates to -1 and +1 for Three.js.
+ * Invisible mesh to track mouse movements in 3D space.
+ * Updated to use standard e.pointer for better accuracy.
  */
 const MouseTracker = () => {
   const setMousePos = useCanvasStore((state) => state.setMousePos);
-
+  
   return (
-    <mesh
+    <mesh 
       onPointerMove={(e) => {
-        // Prevent event from bubbling if you have other interactive UI
-        e.stopPropagation();
-        const x = (e.clientX / window.innerWidth) * 2 - 1;
-        const y = -(e.clientY / window.innerHeight) * 2 + 1;
+        // e.uv gives us normalized coordinates [0, 1] relative to the plane
+        // translating that to the expected [-1, 1] range for shaders/effects
+        const x = e.uv ? e.uv.x * 2 - 1 : 0;
+        const y = e.uv ? e.uv.y * 2 - 1 : 0;
         setMousePos(x, y);
       }}
     >
@@ -31,64 +31,56 @@ const MouseTracker = () => {
   );
 };
 
-/**
- * Invisible physics floor for collisions.
- */
-const PhysicsFloor = () => {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -8, 0]} receiveShadow>
-      <planeGeometry args={[100, 100]} />
-      <shadowMaterial opacity={0.3} />
-    </mesh>
-  );
-};
-
 export const Scene3D = () => {
-  const { 
-    project, 
-    selectedId, 
-    setSelectedId, 
-    currentEffect, 
-    performanceMode,
-    theme 
-  } = useCanvasStore();
+  const { project, selectedId, setSelectedId, currentEffect, performanceMode, theme } = useCanvasStore();
+  
+  // Responsive FOV logic
+  const [fov, setFov] = useState(45);
+  useEffect(() => {
+    const handleResize = () => {
+      // Keep models visible in the center even on mobile/split screens
+      setFov(window.innerHeight > window.innerWidth ? 60 : 45);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  // Dynamic environment and light colors based on the selected theme
   const themeColors = useMemo(() => {
     switch (theme) {
       case 'cyberpunk': return { bg: '#080008', light: '#ff00ff', intensity: 2.5 };
       case 'vaporwave': return { bg: '#000b1a', light: '#00f2ff', intensity: 2.0 };
-      case 'minimal': return { bg: '#0a0a0a', light: '#ffffff', intensity: 1.0 };
       case 'emerald': return { bg: '#000804', light: '#10b981', intensity: 2.2 };
       default: return { bg: '#050505', light: '#3b82f6', intensity: 1.5 };
     }
   }, [theme]);
 
   return (
-    <div className="w-full h-full relative flex items-center justify-center bg-black">
+    // Fixed: Ensure the container has absolute positioning and full dimensions 
+    // to fill the parent 'main' area in App.tsx
+    <div className="absolute inset-0 w-full h-full bg-black">
       <Canvas 
+        key={currentEffect} // Force re-render of the entire engine context
         shadows 
-        camera={{ position: [0, 0, 18], fov: 45 }} 
+        camera={{ position: [0, 0, 20], fov: fov }} 
         gl={{ 
           antialias: performanceMode === 'high', 
-          stencil: false, 
-          depth: true,
           powerPreference: "high-performance",
-          // Helps with smooth movement in fullscreen
-          alpha: false 
+          alpha: true,
+          preserveDrawingBuffer: true // Helps with visibility during layout shifts
         }}
-        className="w-full h-full"
+        className="w-full h-full touch-none"
       >
         <color attach="background" args={[themeColors.bg]} />
         
-        {/* The MouseTracker must stay at the top of the scene graph */}
+        {/* Helper for interaction */}
         <MouseTracker />
 
         <Suspense fallback={null}>
-          {/* 1. Global Interactive Mouse Trail */}
-          <MouseField count={performanceMode === 'high' ? 150 : 50} />
-
-          {/* 2. Environmental Lighting */}
+          {/* Global background effects */}
+          <MouseField count={performanceMode === 'high' ? 120 : 40} />
+          
+          {/* Lighting */}
           <ambientLight intensity={0.4} />
           <pointLight 
             position={[10, 10, 10]} 
@@ -98,19 +90,14 @@ export const Scene3D = () => {
           />
           <Environment preset={theme === 'minimal' ? 'city' : 'night'} />
 
-          {/* 3. Physics & Dynamic Entities */}
+          {/* 3D Content and Physics */}
           <Physics 
             gravity={[0, -9.81, 0]} 
             allowSleep 
-            iterations={performanceMode === 'high' ? 20 : 5}
+            iterations={performanceMode === 'high' ? 15 : 5}
           >
-            {/* Background Procedural Effects */}
-            <EffectManager 
-              key={currentEffect} 
-              isLite={performanceMode === 'lite'} 
-            />
-
-            {/* MERN User Objects */}
+            <EffectManager key={currentEffect} isLite={performanceMode === 'lite'} />
+            
             {project?.shapes?.map((shape) => (
               <AnimatedMesh 
                 key={shape.id} 
@@ -120,28 +107,31 @@ export const Scene3D = () => {
               />
             ))}
 
-            <PhysicsFloor />
+            {/* Ground Plane for Shadow Catching */}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -8, 0]} receiveShadow>
+              <planeGeometry args={[100, 100]} />
+              <shadowMaterial opacity={0.3} />
+            </mesh>
           </Physics>
 
-          {/* 4. Post-Processing & Themes */}
           <PresetManager />
         </Suspense>
 
-        {/* 5. Visual Polish */}
+        {/* Visual Polish */}
         <ContactShadows 
           position={[0, -7.9, 0]} 
-          opacity={theme === 'minimal' ? 0.2 : 0.5} 
+          opacity={0.4} 
           scale={30} 
           blur={2.5} 
         />
-        
+
         <OrbitControls 
           makeDefault 
           enableDamping 
           dampingFactor={0.05}
-          maxDistance={50}
-          // Disable rotation if user is trying to "draw" with mouse in fullscreen
           enableRotate={!selectedId} 
+          minDistance={5}
+          maxDistance={40}
         />
       </Canvas>
     </div>
